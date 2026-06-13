@@ -17,6 +17,9 @@ COPY --from=builder /build/vendor /var/lang/lib/python3.12/site-packages
 
 COPY lambda/handler.py   /var/task/handler.py
 COPY lambda/adapter.py   /var/task/adapter.py
+COPY lambda/auth.py      /var/task/auth.py
+COPY lambda/rag.py       /var/task/rag.py
+COPY lambda/__init__.py  /var/task/__init__.py
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD curl -f http://localhost:8080/2015-03-31/functions/function/invocations -d '{}' || exit 1

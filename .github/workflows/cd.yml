@@ -8,6 +8,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: agent-shopping
   AWS_REGION: eu-west-1
+  NODE_VERSION: '20'
 
 jobs:
   ci:
@@ -55,7 +56,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
 
       - uses: actions/setup-python@v5
         with:
@@ -78,9 +79,59 @@ jobs:
           AWS_REGION: ${{ env.AWS_REGION }}
 
       - name: CDK Deploy
+        id: cdk-deploy
         working-directory: infra/cdk
-        run: cdk deploy --require-approval never
+        run: >
+          cdk deploy --require-approval never
+          --outputs-file /tmp/cdk-outputs.json
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.AWS_REGION }}
+
+  deploy-widget:
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build widget
+        run: npm ci && npm run build
+        working-directory: widget
+
+      - name: Install AWS CLI
+        run: |
+          pip install awscli
+
+      - name: Upload widget to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          BUCKET="agent-shopping-widget-${{ secrets.AWS_ACCOUNT_ID }}-${{ env.AWS_REGION }}"
+          aws s3 cp widget/dist/agent-shopping.min.js \
+            "s3://$BUCKET/agent-shopping.min.js" \
+            --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp widget/dist/agent-shopping.min.js.map \
+            "s3://$BUCKET/agent-shopping.min.js.map" \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Invalidate CloudFront
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Agent Shopping widget CDN (${{ secrets.AWS_ACCOUNT_ID }})'].Id" \
+            --output text)
+          if [ -n "$DIST_ID" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/*"
+          fi
