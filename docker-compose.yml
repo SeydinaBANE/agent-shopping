@@ -25,8 +25,7 @@ services:
     image: opensearchproject/opensearch:2
     environment:
       - discovery.type=single-node
-      - plugins.security.disabled=true
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Admin123!
+      - DISABLE_SECURITY_PLUGIN=true
     ports:
       - "9200:9200"
     healthcheck:
