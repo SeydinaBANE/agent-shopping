@@ -22,7 +22,7 @@ services:
         condition: service_healthy
 
   opensearch:
-    image: opensearchproject/opensearch:2.14
+    image: opensearchproject/opensearch:2
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
