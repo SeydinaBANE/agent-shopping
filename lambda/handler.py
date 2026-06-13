@@ -9,13 +9,20 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from adapter import ClientAPIAdapter
+from auth import extract_user_context
 from rag import build_rag_context, search_similar
 
 logger = Logger()
 tracer = Tracer()
 
-bedrock_runtime = boto3.client("bedrock-runtime")
-ssm = boto3.client("ssm")
+
+def _bedrock_client():
+    return boto3.client("bedrock-runtime")
+
+
+def _ssm_client():
+    return boto3.client("ssm")
+
 
 MODEL_SONNET = os.environ.get(
     "BEDROCK_MODEL_ID",
@@ -44,15 +51,16 @@ def _is_fast_path(message: str) -> bool:
 
 
 def _get_tenant_config(tenant_id: str) -> dict[str, Any]:
+    client = _ssm_client()
     path = f"/agent-shopping/tenants/{tenant_id}"
     try:
-        params = ssm.get_parameters_by_path(Path=path, Recursive=True, WithDecryption=True)
-        config: dict[str, Any] = {}
+        params = client.get_parameters_by_path(Path=path, Recursive=True, WithDecryption=True)
         for param in params.get("Parameters", []):
             key = param["Name"].split("/")[-1]
-            config[key] = param["Value"]
-        return config
-    except ssm.exceptions.ParameterNotFound:
+            if key == "config":
+                return json.loads(param["Value"])
+        return {}
+    except client.exceptions.ParameterNotFound:
         logger.warning("tenant_config_not_found", tenant_id=tenant_id)
         return {}
 
@@ -74,7 +82,7 @@ def _invoke_bedrock(
         "tools": tools,
     }
 
-    response = bedrock_runtime.invoke_model(
+    response = _bedrock_client().invoke_model(
         modelId=model_id,
         contentType="application/json",
         accept="application/json",
@@ -227,7 +235,17 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
     if not message:
         return {"statusCode": 400, "body": json.dumps({"error": "Message is required"})}
 
+    headers = event.get("headers", {}) or {}
+    auth_header = headers.get("authorization", headers.get("Authorization", ""))
+    token = auth_header.removeprefix("Bearer ").strip() if auth_header else None
+
     config = _get_tenant_config(tenant_id)
+    jwks_uri = config.get("public_key_jwks_uri", "")
+
+    user_ctx = extract_user_context(token, jwks_uri)
+    is_auth = user_ctx.get("user_context", {}).get("mode") == "authenticated"
+    if is_auth and user_ctx.get("tenant_id") != tenant_id:
+        return {"statusCode": 403, "body": json.dumps({"error": "Tenant mismatch"})}
 
     adapter = ClientAPIAdapter(
         base_url=config.get("api_base_url", ""),
@@ -260,6 +278,8 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
         "conversation_processed",
         extra={
             "tenant_id": tenant_id,
+            "user_sub": user_ctx.get("sub", "unknown"),
+            "user_mode": user_ctx.get("user_context", {}).get("mode", "unknown"),
             "fast_path": fast,
             "latency_ms": int(context.get_remaining_time_in_millis() or 0),
             "tool_calls": result.get("tool_calls_count", 0),

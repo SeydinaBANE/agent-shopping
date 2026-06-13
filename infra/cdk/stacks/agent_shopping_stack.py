@@ -351,6 +351,7 @@ class AgentShoppingStack(Stack):
             string_value=json.dumps({
                 "tenant_id": "default",
                 "name": "Default Tenant",
+                "public_key_jwks_uri": "",
                 "api_base_url": "",
                 "api_auth_header": "X-Api-Key",
                 "endpoints": {
