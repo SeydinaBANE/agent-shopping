@@ -8,7 +8,8 @@ Le `<agent-shopping>` est un Web Component vanilla à embarquer sur n'importe qu
 
 ```html
 <!-- Version CDN (recommandée) -->
-<script src="https://cdn.agent-shopping.dev/widget/v1/agent-shopping.min.js"></script>
+<!-- Version CDN (CloudFront — remplacer <id> par l'ID de distribution) -->
+<script src="https://<id>.cloudfront.net/agent-shopping.min.js"></script>
 
 <!-- Version auto-hébergée -->
 <script src="/chemin/vers/agent-shopping.min.js"></script>

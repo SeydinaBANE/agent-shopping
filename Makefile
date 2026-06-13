@@ -1,10 +1,13 @@
-.PHONY: help install lint typecheck test build clean docker-build docker-push pre-commit-init format
+.PHONY: help install lint typecheck test build clean docker-build docker-push pre-commit-init format deploy-widget
 
-APP_NAME   ?= agent-shopping
-VERSION    ?= $(shell cat VERSION 2>/dev/null || echo "0.1.0")
-REGISTRY   ?= ghcr.io
-OWNER      ?= ekkiden
-IMAGE_NAME ?= $(REGISTRY)/$(OWNER)/$(APP_NAME)
+APP_NAME      ?= agent-shopping
+AWS_ACCOUNT   ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+AWS_REGION    ?= $(shell aws configure get region 2>/dev/null || echo "eu-west-1")
+WIDGET_BUCKET ?= $(APP_NAME)-widget-$(AWS_ACCOUNT)-$(AWS_REGION)
+VERSION       ?= $(shell cat VERSION 2>/dev/null || echo "0.1.0")
+REGISTRY      ?= ghcr.io
+OWNER         ?= ekkiden
+IMAGE_NAME    ?= $(REGISTRY)/$(OWNER)/$(APP_NAME)
 
 help:
 	@echo "Usage:"
@@ -13,6 +16,7 @@ help:
 	@echo "  make typecheck       Run type checker (mypy)"
 	@echo "  make test            Run tests"
 	@echo "  make build           Package Lambda + Widget"
+	@echo "  make deploy-widget   Upload widget to S3 + invalidate CloudFront"
 	@echo "  make clean           Remove build artifacts"
 	@echo "  make docker-build    Build Docker image"
 	@echo "  make docker-push     Push Docker image to ghcr.io"
@@ -57,6 +61,12 @@ docker-build:
 docker-push: docker-build
 	docker push $(IMAGE_NAME):$(VERSION)
 	docker push $(IMAGE_NAME):latest
+
+deploy-widget: build
+	@echo "Uploading widget to s3://$(WIDGET_BUCKET)/..."
+	aws s3 cp widget/dist/agent-shopping.min.js s3://$(WIDGET_BUCKET)/agent-shopping.min.js --cache-control "public, max-age=31536000, immutable"
+	aws s3 cp widget/dist/agent-shopping.min.js.map s3://$(WIDGET_BUCKET)/agent-shopping.min.js.map --cache-control "public, max-age=31536000, immutable"
+	@echo "Uploaded widget version $(VERSION)"
 
 pre-commit-init:
 	pre-commit install

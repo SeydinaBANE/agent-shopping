@@ -3,18 +3,22 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import aws_cdk as cdk
 from aws_cdk import (
+    CfnOutput,
     Duration,
+    RemovalPolicy,
     Stack,
     aws_apigatewayv2 as apigwv2,
     aws_apigatewayv2_integrations as apigwv2_integrations,
+    aws_cloudfront as cloudfront,
+    aws_cloudfront_origins as origins,
     aws_cloudwatch as cloudwatch,
     aws_ec2 as ec2,
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_logs as logs,
     aws_opensearchserverless as opss,
+    aws_s3 as s3,
     aws_ssm as ssm,
     aws_wafv2 as wafv2,
 )
@@ -43,9 +47,10 @@ class AgentShoppingStack(Stack):
         self._create_opensearch_serverless(lambda_role)
         self._create_ssm_parameters()
         self._create_monitoring(orchestrator)
+        self._create_widget_cdn()
 
-        cdk.CfnOutput(self, "ApiGatewayUrl", value=http_api.url or "")
-        cdk.CfnOutput(self, "LambdaFunctionName", value=orchestrator.function_name)
+        CfnOutput(self, "ApiGatewayUrl", value=http_api.url or "")
+        CfnOutput(self, "LambdaFunctionName", value=orchestrator.function_name)
 
     # ----- VPC -----
 
@@ -123,7 +128,9 @@ class AgentShoppingStack(Stack):
             retention=logs.RetentionDays.ONE_WEEK,
         )
 
-    def _create_lambda(self, vpc: ec2.Vpc, role: iam.Role) -> lambda_.DockerImageFunction:
+    def _create_lambda(
+        self, vpc: ec2.Vpc, role: iam.Role
+    ) -> lambda_.DockerImageFunction:
         return lambda_.DockerImageFunction(
             self,
             "Orchestrator",
@@ -213,7 +220,9 @@ class AgentShoppingStack(Stack):
             ],
         )
 
-        stage_name = http_api.default_stage.stage_name if http_api.default_stage else "$default"
+        stage_name = (
+            http_api.default_stage.stage_name if http_api.default_stage else "$default"
+        )
         wafv2.CfnWebACLAssociation(
             self,
             "WebACLAssociation",
@@ -271,36 +280,40 @@ class AgentShoppingStack(Stack):
             description="Agent Shopping — RAG et cache sémantique",
         )
 
-        opss.CfnSecurityPolicy(
+        encryption_policy = opss.CfnSecurityPolicy(
             self,
             "EncryptionPolicy",
             name=f"{APP_NAME}-encryption",
             type="encryption",
-            policy=json.dumps({
-                "Rules": [
-                    {
-                        "Resource": [f"collection/{APP_NAME}-rag"],
-                        "ResourceType": "collection",
-                    }
-                ],
-                "AWSOwnedKey": True,
-            }),
+            policy=json.dumps(
+                {
+                    "Rules": [
+                        {
+                            "Resource": [f"collection/{APP_NAME}-rag"],
+                            "ResourceType": "collection",
+                        }
+                    ],
+                    "AWSOwnedKey": True,
+                }
+            ),
         )
 
-        opss.CfnSecurityPolicy(
+        network_policy = opss.CfnSecurityPolicy(
             self,
             "NetworkPolicy",
             name=f"{APP_NAME}-network",
             type="network",
-            policy=json.dumps({
-                "Rules": [
-                    {
-                        "Resource": [f"collection/{APP_NAME}-rag"],
-                        "ResourceType": "collection",
-                    }
-                ],
-                "AllowFromPublic": True,
-            }),
+            policy=json.dumps(
+                {
+                    "Rules": [
+                        {
+                            "Resource": [f"collection/{APP_NAME}-rag"],
+                            "ResourceType": "collection",
+                        }
+                    ],
+                    "AllowFromPublic": True,
+                }
+            ),
         )
 
         opss.CfnAccessPolicy(
@@ -308,34 +321,36 @@ class AgentShoppingStack(Stack):
             "DataAccessPolicy",
             name=f"{APP_NAME}-data-access",
             type="data",
-            policy=json.dumps([
-                {
-                    "Rules": [
-                        {
-                            "Resource": [f"collection/{APP_NAME}-rag"],
-                            "ResourceType": "collection",
-                            "Permission": [
-                                "aoss:CreateCollectionItems",
-                                "aoss:DescribeCollectionItems",
-                            ],
-                        },
-                        {
-                            "Resource": [f"index/{APP_NAME}-rag/*"],
-                            "ResourceType": "index",
-                            "Permission": [
-                                "aoss:CreateIndex",
-                                "aoss:ReadDocument",
-                                "aoss:WriteDocument",
-                                "aoss:DeleteDocument",
-                                "aoss:DescribeIndex",
-                            ],
-                        },
-                    ],
-                    "Principal": [
-                        lambda_role.role_arn,
-                    ],
-                }
-            ]),
+            policy=json.dumps(
+                [
+                    {
+                        "Rules": [
+                            {
+                                "Resource": [f"collection/{APP_NAME}-rag"],
+                                "ResourceType": "collection",
+                                "Permission": [
+                                    "aoss:CreateCollectionItems",
+                                    "aoss:DescribeCollectionItems",
+                                ],
+                            },
+                            {
+                                "Resource": [f"index/{APP_NAME}-rag/*"],
+                                "ResourceType": "index",
+                                "Permission": [
+                                    "aoss:CreateIndex",
+                                    "aoss:ReadDocument",
+                                    "aoss:WriteDocument",
+                                    "aoss:DeleteDocument",
+                                    "aoss:DescribeIndex",
+                                ],
+                            },
+                        ],
+                        "Principal": [
+                            lambda_role.role_arn,
+                        ],
+                    }
+                ]
+            ),
         )
 
         collection.add_dependency(encryption_policy)
@@ -348,32 +363,78 @@ class AgentShoppingStack(Stack):
             self,
             "DefaultTenantConfig",
             parameter_name=f"/{APP_NAME}/tenants/default/config",
-            string_value=json.dumps({
-                "tenant_id": "default",
-                "name": "Default Tenant",
-                "public_key_jwks_uri": "",
-                "api_base_url": "",
-                "api_auth_header": "X-Api-Key",
-                "endpoints": {
-                    "search_products": "/products/search",
-                    "product_detail": "/products/{produit_id}",
-                    "check_inventory": "/products/{produit_id}/stock",
-                    "user_history": "/users/{client_id}/orders",
-                    "add_to_cart": "/cart",
-                    "place_order": "/orders",
-                    "track_order": "/orders/{commande_id}",
-                },
-                "brand": {
-                    "primary_color": "#6C5CE7",
-                    "name": "Agent Shopping",
-                },
-                "llm_config": {
-                    "model": MODEL_SONNET,
-                    "temperature": 0.3,
-                    "max_tokens": 1024,
-                },
-            }),
+            string_value=json.dumps(
+                {
+                    "tenant_id": "default",
+                    "name": "Default Tenant",
+                    "public_key_jwks_uri": "",
+                    "api_base_url": "",
+                    "api_auth_header": "X-Api-Key",
+                    "endpoints": {
+                        "search_products": "/products/search",
+                        "product_detail": "/products/{produit_id}",
+                        "check_inventory": "/products/{produit_id}/stock",
+                        "user_history": "/users/{client_id}/orders",
+                        "add_to_cart": "/cart",
+                        "place_order": "/orders",
+                        "track_order": "/orders/{commande_id}",
+                    },
+                    "brand": {
+                        "primary_color": "#6C5CE7",
+                        "name": "Agent Shopping",
+                    },
+                    "llm_config": {
+                        "model": MODEL_SONNET,
+                        "temperature": 0.3,
+                        "max_tokens": 1024,
+                    },
+                }
+            ),
         )
+
+    # ----- Widget CDN -----
+
+    def _create_widget_cdn(self) -> None:
+        bucket = s3.Bucket(
+            self,
+            "WidgetBucket",
+            bucket_name=f"agent-shopping-widget-{self.account}-{self.region}",
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            versioned=False,
+        )
+
+        distribution = cloudfront.Distribution(
+            self,
+            "WidgetDistribution",
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origins.S3BucketOrigin(bucket),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                compress=True,
+            ),
+            default_root_object="agent-shopping.min.js",
+            error_responses=[
+                cloudfront.ErrorResponse(
+                    http_status=403,
+                    response_page_path="/agent-shopping.min.js",
+                    response_http_status=200,
+                    ttl=Duration.seconds(300),
+                ),
+                cloudfront.ErrorResponse(
+                    http_status=404,
+                    response_page_path="/agent-shopping.min.js",
+                    response_http_status=200,
+                    ttl=Duration.seconds(300),
+                ),
+            ],
+            comment=f"Agent Shopping widget CDN ({self.account})",
+        )
+
+        CfnOutput(self, "WidgetBucketName", value=bucket.bucket_name)
+        CfnOutput(self, "WidgetCDNUrl", value=distribution.distribution_domain_name)
 
     # ----- Monitoring -----
 
