@@ -41,7 +41,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -r lambda/requirements-dev.txt
       - run: pytest tests/ -v --cov=lambda/ --cov-report=term
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage
@@ -58,7 +58,7 @@ jobs:
         working-directory: widget
       - run: npm run build
         working-directory: widget
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: widget-dist
           path: widget/dist/
@@ -88,7 +88,7 @@ jobs:
       - name: Run Artillery smoke tests
         run: npx artillery run artillery/smoke.yml --output artillery/reports/smoke.json
       - name: Upload report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: artillery-report
