@@ -35,7 +35,8 @@ cdk deploy      # deploys VPC + Lambda + API Gateway + WAF + OpenSearch + SSM + 
 CDK builds the Lambda Docker image from `Dockerfile` during deploy.
 
 ## Architecture
-- **Lambda** `lambda/handler.py` — Bedrock Claude 3.5 orchestrator, stateless, JWT → SSM config → model routing (Haiku for greetings, Sonnet for real queries)
+- **Auth** `lambda/auth.py` — JWT validation via JWKS; `extract_user_context()` returns authenticated or guest context (mode=limited)
+- **Lambda** `lambda/handler.py` — Bedrock Claude 3.5 orchestrator, stateless, JWT → SSM config → model routing (Haiku for greetings, Sonnet for real queries); lazy `_bedrock_client()` / `_ssm_client()`
 - **Adapter** `lambda/adapter.py` — translates Bedrock tool calls to client REST APIs; `confirmed=True` guardrail on cart/order tools
 - **RAG** `lambda/rag.py` — Titan Embeddings v2 → OpenSearch k-NN search; context injected into system prompt for non-fast-path queries
 - **Widget** `widget/agent-shopping.js` — vanilla Web Component (Shadow DOM), no build step, no npm, ~40KB
@@ -45,7 +46,9 @@ CDK builds the Lambda Docker image from `Dockerfile` during deploy.
 ## Testing quirks
 - All external services (SSM, Bedrock, OpenSearch) are mocked in tests
 - Adapter uses `catalog_path` parameter to read mock catalog (no `/var/task/` needed)
+- ALL boto3 clients are lazy (`_ssm_client()`, `_bedrock_client()`) — never at module level, safe for test imports
 - RAG module uses lazy `boto3.client()` — not initialized at import time, safe for tests
+- JWT tests generate real RSA key pairs via `cryptography.hazmat` — mock `auth.requests.get` for JWKS endpoint
 - Run single test: `pytest tests/test_handler.py::TestIsFastPath -v`
 
 ## Code conventions
