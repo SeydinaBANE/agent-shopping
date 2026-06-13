@@ -1,12 +1,12 @@
 # Stage 1: Builder
-FROM public.ecr.aws/lambda/python:3.12 AS builder
+FROM public.ecr.aws/lambda/python:3.13 AS builder
 
 WORKDIR /build
 COPY lambda/requirements.txt ./
 RUN pip install -r requirements.txt -t /build/vendor
 
 # Stage 2: Runtime
-FROM public.ecr.aws/lambda/python:3.12 AS runtime
+FROM public.ecr.aws/lambda/python:3.13 AS runtime
 
 ARG VERSION=0.1.0
 LABEL org.opencontainers.image.version=${VERSION}
