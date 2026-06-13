@@ -34,10 +34,11 @@ test:
 	pytest tests/ -v --cov=lambda/ --cov-report=term-missing
 
 build: test lint typecheck
-	cd widget && npm run build 2>/dev/null || echo "Widget build skipped (no package.json yet)"
-	cd lambda && pip install -r lambda/requirements.txt -t build/ 2>/dev/null || mkdir -p build
+	cd widget && npm ci && npm run build
+	cd lambda && pip install -r requirements.txt -t build/ 2>/dev/null || mkdir -p build
 	cp lambda/handler.py lambda/build/
 	cp lambda/adapter.py lambda/build/
+	cp lambda/auth.py lambda/build/
 
 clean:
 	rm -rf lambda/build/

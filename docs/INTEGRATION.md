@@ -8,10 +8,10 @@ Le `<agent-shopping>` est un Web Component vanilla à embarquer sur n'importe qu
 
 ```html
 <!-- Version CDN (recommandée) -->
-<script src="https://cdn.agent-shopping.dev/widget/v1/agent-shopping.js"></script>
+<script src="https://cdn.agent-shopping.dev/widget/v1/agent-shopping.min.js"></script>
 
 <!-- Version auto-hébergée -->
-<script src="/chemin/vers/agent-shopping.js"></script>
+<script src="/chemin/vers/agent-shopping.min.js"></script>
 ```
 
 ## 2. Usage de base

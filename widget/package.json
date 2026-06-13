@@ -1,0 +1,13 @@
+{
+  "name": "@ekkiden/agent-shopping",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild agent-shopping.js --bundle --minify --sourcemap --outfile=dist/agent-shopping.min.js",
+    "watch": "esbuild agent-shopping.js --bundle --minify --sourcemap --outfile=dist/agent-shopping.min.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
