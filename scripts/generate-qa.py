@@ -43,20 +43,24 @@ def generate_qa_pairs(count: int = 50) -> list[dict]:
     qa_pairs = []
 
     for i in range(min(count, len(all_questions))):
-        qa_pairs.append({
-            "id": f"QA-{i+1:03d}",
-            "question": all_questions[i],
-            "expected_tools": _expected_tools(all_questions[i]),
-        })
+        qa_pairs.append(
+            {
+                "id": f"QA-{i + 1:03d}",
+                "question": all_questions[i],
+                "expected_tools": _expected_tools(all_questions[i]),
+            }
+        )
 
     # Add remaining random QAs
     for i in range(count - len(all_questions)):
         q = random.choice(RANDOM_QUESTIONS)
-        qa_pairs.append({
-            "id": f"QA-{len(all_questions)+i+1:03d}",
-            "question": q,
-            "expected_tools": _expected_tools(q),
-        })
+        qa_pairs.append(
+            {
+                "id": f"QA-{len(all_questions) + i + 1:03d}",
+                "question": q,
+                "expected_tools": _expected_tools(q),
+            }
+        )
 
     return qa_pairs
 

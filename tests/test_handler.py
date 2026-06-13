@@ -288,3 +288,122 @@ class TestLambdaHandler:
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
+
+    @patch("handler._ssm_client")
+    @patch("handler._bedrock_client")
+    def test_multi_turn_tool_calls(
+        self,
+        mock_bedrock: MagicMock,
+        mock_ssm: MagicMock,
+    ) -> None:
+        from handler import lambda_handler
+
+        mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
+
+        bedrock_calls: list = []
+        bedrock_responses = iter(
+            [
+                {
+                    "content": [
+                        {"type": "text", "text": "Je cherche dans le catalogue..."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "rechercher_produits",
+                            "input": {"query": "ordinateur"},
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_2",
+                            "name": "verifier_stock",
+                            "input": {"produit_id": "P100"},
+                        },
+                    ],
+                },
+                {
+                    "content": [{"type": "text", "text": "Voici les résultats..."}],
+                },
+            ]
+        )
+
+        def invoke_model(**kwargs):
+            bedrock_calls.append(kwargs)
+            resp = next(bedrock_responses)
+            return {"body": MagicMock(read=MagicMock(return_value=json.dumps(resp)))}
+
+        mock_bedrock.return_value.invoke_model.side_effect = invoke_model
+
+        event = {
+            "body": json.dumps(
+                {
+                    "message": "Je cherche un ordinateur",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
+        }
+        context = MagicMock()
+        context.get_remaining_time_in_millis.return_value = 5000
+
+        response = lambda_handler(event, context)
+        assert response["statusCode"] == 200
+        body = json.loads(response["body"])
+        assert body["tool_calls_count"] == 2
+        assert "Voici les résultats" in body["response"]
+        assert len(bedrock_calls) == 2
+
+        second_call_body = json.loads(bedrock_calls[1]["body"])
+        user_messages = [m for m in second_call_body["messages"] if m["role"] == "user"]
+        tool_result_blocks = user_messages[-1]["content"]
+        assert any(b["type"] == "tool_result" for b in tool_result_blocks)
+
+    @patch("handler._ssm_client")
+    @patch("handler._bedrock_client")
+    def test_max_tool_turns_limited(
+        self,
+        mock_bedrock: MagicMock,
+        mock_ssm: MagicMock,
+    ) -> None:
+        from handler import MAX_TOOL_TURNS, lambda_handler
+
+        mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
+
+        def always_tool(**kwargs):
+            return {
+                "body": MagicMock(
+                    read=MagicMock(
+                        return_value=json.dumps(
+                            {
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": "toolu_loop",
+                                        "name": "rechercher_produits",
+                                        "input": {"query": "test"},
+                                    }
+                                ],
+                            }
+                        )
+                    )
+                )
+            }
+
+        mock_bedrock.return_value.invoke_model.side_effect = always_tool
+
+        event = {
+            "body": json.dumps(
+                {
+                    "message": "test",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
+        }
+        context = MagicMock()
+        context.get_remaining_time_in_millis.return_value = 5000
+
+        response = lambda_handler(event, context)
+        assert response["statusCode"] == 200
+        body = json.loads(response["body"])
+        total_expected = MAX_TOOL_TURNS * 1
+        assert body["tool_calls_count"] == total_expected

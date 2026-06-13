@@ -15,6 +15,9 @@ from rag import build_rag_context, search_similar
 logger = Logger()
 tracer = Tracer()
 
+MAX_TOOL_TURNS = 3
+MessageContent = str | list[dict[str, Any]]
+
 
 def _bedrock_client():
     return boto3.client("bedrock-runtime")
@@ -66,7 +69,7 @@ def _get_tenant_config(tenant_id: str) -> dict[str, Any]:
 
 
 def _invoke_bedrock(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, MessageContent]],
     system_prompt: str,
     tools: list[dict[str, Any]],
     fast: bool = False,
@@ -265,14 +268,13 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
 
     system_prompt = f"{rag_context}\n\n{SYSTEM_PROMPT}" if rag_context else SYSTEM_PROMPT
 
-    response = _invoke_bedrock(
+    result = _run_conversation(
         messages=messages,
         system_prompt=system_prompt,
         tools=tools,
+        adapter=adapter,
         fast=fast,
     )
-
-    result = _handle_bedrock_response(response, adapter)
 
     logger.info(
         "conversation_processed",
@@ -289,29 +291,67 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
     return {"statusCode": 200, "body": json.dumps(result)}
 
 
-def _handle_bedrock_response(
-    response: dict[str, Any],
+def _process_tool_calls(
+    content: list[dict[str, Any]],
     adapter: ClientAPIAdapter,
-) -> dict[str, Any]:
-    content = response.get("content", [])
-    output_text = ""
-    tool_calls_count = 0
+) -> tuple[list[dict[str, Any]], int]:
+    blocks: list[dict[str, Any]] = []
+    count = 0
 
     for block in content:
-        if block.get("type") == "text":
-            output_text += block["text"]
+        if block.get("type") != "tool_use":
+            continue
 
-        elif block.get("type") == "tool_use":
-            tool_calls_count += 1
-            tool_name = block.get("name", "")
-            tool_input = block.get("input", {})
+        count += 1
+        tool_name = block.get("name", "")
+        tool_input = block.get("input", {})
+        tool_use_id = block.get("id", "")
 
-            tool_result = adapter.call(tool_name, tool_input)
-            # In a real implementation, we would feed this back to Bedrock
-            # For POC, we append it to the output
-            output_text += f"\n[{tool_name}] {json.dumps(tool_result, ensure_ascii=False)}"
+        try:
+            result = adapter.call(tool_name, tool_input)
+            result_str = json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            result_str = json.dumps({"error": str(e)}, ensure_ascii=False)
 
-    return {
-        "response": output_text,
-        "tool_calls_count": tool_calls_count,
-    }
+        blocks.append(
+            {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": result_str,
+            }
+        )
+
+    return blocks, count
+
+
+def _run_conversation(
+    messages: list[dict[str, MessageContent]],
+    system_prompt: str,
+    tools: list[dict[str, Any]],
+    adapter: ClientAPIAdapter,
+    fast: bool = False,
+) -> dict[str, Any]:
+    content: list[dict[str, Any]] = []
+    total_tool_calls = 0
+
+    for i in range(MAX_TOOL_TURNS):
+        use_fast = fast and i == 0
+        response = _invoke_bedrock(messages, system_prompt, tools, fast=use_fast)
+        content = response.get("content", [])
+
+        tool_blocks = [b for b in content if b.get("type") == "tool_use"]
+        if not tool_blocks:
+            break
+
+        tool_results, count = _process_tool_calls(content, adapter)
+        total_tool_calls += count
+
+        messages = [
+            *messages,
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": tool_results},
+        ]
+
+    output_text = "".join(b["text"] for b in content if b.get("type") == "text")
+
+    return {"response": output_text, "tool_calls_count": total_tool_calls}

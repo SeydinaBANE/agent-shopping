@@ -13,7 +13,7 @@ PRODUCT_COUNT = 500
 
 PROMPT = f"""Génère un catalogue de {PRODUCT_COUNT} produits e-commerce au format JSON.
 Chaque produit a les champs : id, nom, description, prix, stock, catégorie, tags.
-Les catégories possibles : {', '.join(CATEGORIES)}.
+Les catégories possibles : {", ".join(CATEGORIES)}.
 Les prix doivent être réalistes. Les descriptions en français, 1-2 phrases.
 Format : un tableau JSON valide uniquement, rien d'autre.
 
@@ -28,11 +28,13 @@ def generate_catalog() -> list[dict]:
         modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
         contentType="application/json",
         accept="application/json",
-        body=json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": PROMPT}],
-        }),
+        body=json.dumps(
+            {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": PROMPT}],
+            }
+        ),
     )
 
     body = json.loads(response["body"].read())
@@ -77,15 +79,17 @@ def _generate_fallback() -> list[dict]:
         category = random.choice(CATEGORIES)
         price = round(random.uniform(9.99, 299.99), 2)
 
-        catalog.append({
-            "id": f"PROD-{i+1:04d}",
-            "nom": f"{adj} {noun}",
-            "description": f"{adj} {noun.lower()} de qualité supérieure. Parfait pour votre quotidien.",
-            "prix": price,
-            "stock": random.randint(0, 150),
-            "categorie": category,
-            "tags": [noun.lower(), adj.lower(), category],
-        })
+        catalog.append(
+            {
+                "id": f"PROD-{i + 1:04d}",
+                "nom": f"{adj} {noun}",
+                "description": f"{adj} {noun.lower()} de qualité supérieure. Parfait pour votre quotidien.",
+                "prix": price,
+                "stock": random.randint(0, 150),
+                "categorie": category,
+                "tags": [noun.lower(), adj.lower(), category],
+            }
+        )
 
     return catalog
 
