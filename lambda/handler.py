@@ -9,6 +9,7 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from adapter import ClientAPIAdapter
+from rag import build_rag_context, search_similar
 
 logger = Logger()
 tracer = Tracer()
@@ -192,7 +193,8 @@ def _build_tools() -> list[dict[str, Any]]:
     ]
 
 
-SYSTEM_PROMPT = """Tu es un assistant shopping en français. Tu aides les clients à trouver des produits et à passer commande sur leur site e-commerce.
+SYSTEM_PROMPT = """Tu es un assistant shopping en français. Tu aides les clients à trouver des
+produits et à passer commande sur leur site e-commerce.
 
 Règles :
 - Sois concis, amical et professionnel
@@ -221,7 +223,6 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
     message = body.get("message", "")
     history = body.get("history", [])
     tenant_id = body.get("tenant_id", "default")
-    user_context = body.get("user_context", {})
 
     if not message:
         return {"statusCode": 400, "body": json.dumps({"error": "Message is required"})}
@@ -238,9 +239,17 @@ def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, A
     messages = history + [{"role": "user", "content": message}]
     tools = _build_tools()
 
+    rag_context = ""
+    if not fast:
+        results = search_similar(message, tenant_id)
+        if results:
+            rag_context = build_rag_context(results)
+
+    system_prompt = f"{rag_context}\n\n{SYSTEM_PROMPT}" if rag_context else SYSTEM_PROMPT
+
     response = _invoke_bedrock(
         messages=messages,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tools=tools,
         fast=fast,
     )

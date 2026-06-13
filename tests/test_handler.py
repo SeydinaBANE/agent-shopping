@@ -4,9 +4,8 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-from lambda.handler import _is_fast_path
+from handler import _is_fast_path
 
 
 class TestIsFastPath:
@@ -27,21 +26,23 @@ class TestIsFastPath:
 
 
 class TestLambdaHandler:
-    @patch("lambda.handler.bedrock_runtime")
-    @patch("lambda.handler.ssm")
+    @patch("handler.bedrock_runtime")
+    @patch("handler.ssm")
     def test_health_check_response(
         self,
         mock_ssm: MagicMock,
         mock_bedrock: MagicMock,
     ) -> None:
-        from lambda.handler import lambda_handler
+        from handler import lambda_handler
 
         event = {
-            "body": json.dumps({
-                "message": "Bonjour",
-                "history": [],
-                "tenant_id": "test",
-            }),
+            "body": json.dumps(
+                {
+                    "message": "Bonjour",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
@@ -50,9 +51,16 @@ class TestLambdaHandler:
         mock_bedrock.invoke_model.return_value = {
             "body": MagicMock(
                 read=MagicMock(
-                    return_value=json.dumps({
-                        "content": [{"type": "text", "text": "Bonjour ! Comment puis-je vous aider ?"}],
-                    })
+                    return_value=json.dumps(
+                        {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Bonjour ! Comment puis-je vous aider ?",
+                                }
+                            ],
+                        }
+                    )
                 )
             )
         }
@@ -64,7 +72,7 @@ class TestLambdaHandler:
         assert "response" in body
 
     def test_missing_message(self) -> None:
-        from lambda.handler import lambda_handler
+        from handler import lambda_handler
 
         event = {"body": json.dumps({})}
         context = MagicMock()
@@ -73,7 +81,7 @@ class TestLambdaHandler:
         assert response["statusCode"] == 400
 
     def test_invalid_json(self) -> None:
-        from lambda.handler import lambda_handler
+        from handler import lambda_handler
 
         event = {"body": "not json"}
         context = MagicMock()

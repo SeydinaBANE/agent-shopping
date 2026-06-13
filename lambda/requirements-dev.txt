@@ -6,3 +6,4 @@ pytest-cov>=5.0
 types-python-jose
 types-requests
 pre-commit>=3.7
+aws-xray-sdk>=2.12

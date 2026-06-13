@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
-from pathlib import Path
 
 import pytest
 
-from lambda.adapter import ClientAPIAdapter
+from adapter import ClientAPIAdapter
 
 
 @pytest.fixture
@@ -40,26 +38,7 @@ def mock_catalog_file() -> str:
 
 @pytest.fixture
 def adapter(mock_catalog_file: str) -> ClientAPIAdapter:
-    # Patch the mock catalog path
-    original_path = "/var/task/mock-catalog.json"
-
-    if not os.path.exists("/var/task"):
-        os.makedirs("/var/task", exist_ok=True)
-
-    # Use symlink or copy
-    if os.path.exists(original_path):
-        os.remove(original_path)
-    os.symlink(mock_catalog_file, original_path)
-
-    return ClientAPIAdapter(base_url="")
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup():
-    yield
-    task_path = Path("/var/task/mock-catalog.json")
-    if task_path.exists():
-        task_path.unlink()
+    return ClientAPIAdapter(base_url="", catalog_path=mock_catalog_file)
 
 
 class TestClientAPIAdapter:
@@ -100,7 +79,9 @@ class TestClientAPIAdapter:
         assert result["disponible"] is False
         assert result["stock"] == 5
 
-    def test_add_to_cart_without_confirmation_raises(self, adapter: ClientAPIAdapter) -> None:
+    def test_add_to_cart_without_confirmation_raises(
+        self, adapter: ClientAPIAdapter
+    ) -> None:
         with pytest.raises(ValueError, match="Confirmation requise"):
             adapter.call("ajouter_panier", {"produit_id": "PROD-001", "quantite": 1})
 
@@ -111,7 +92,9 @@ class TestClientAPIAdapter:
         )
         assert result["success"] is True
 
-    def test_place_order_without_confirmation_raises(self, adapter: ClientAPIAdapter) -> None:
+    def test_place_order_without_confirmation_raises(
+        self, adapter: ClientAPIAdapter
+    ) -> None:
         with pytest.raises(ValueError, match="Confirmation requise"):
             adapter.call("passer_commande", {})
 

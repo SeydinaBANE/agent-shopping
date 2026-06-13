@@ -8,12 +8,15 @@ import requests
 
 
 class ClientAPIAdapter:
+    _DEFAULT_CATALOG_PATH = "/var/task/mock-catalog.json"
+
     def __init__(
         self,
         base_url: str = "",
         auth_header: str = "X-API-Key",
         auth_value: str = "",
         timeout: int = 5,
+        catalog_path: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.auth_header = auth_header
@@ -31,11 +34,12 @@ class ClientAPIAdapter:
         }
 
         self._mock_catalog: list[dict[str, Any]] = []
-        self._load_mock_catalog()
+        self._load_mock_catalog(catalog_path)
 
-    def _load_mock_catalog(self) -> None:
+    def _load_mock_catalog(self, catalog_path: str | None = None) -> None:
+        path = catalog_path or self._DEFAULT_CATALOG_PATH
         try:
-            with open("/var/task/mock-catalog.json") as f:
+            with open(path) as f:
                 self._mock_catalog = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             self._mock_catalog = []
@@ -53,14 +57,17 @@ class ClientAPIAdapter:
             )
 
     def _mock_search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
-        q = query.lower()
+        q = query.strip().lower()
+        if not q:
+            return []
         results = [
             p
             for p in self._mock_catalog
             if q in p.get("nom", "").lower() or q in p.get("description", "").lower()
         ]
         if kwargs.get("categorie"):
-            results = [r for r in results if r.get("categorie", "").lower() == kwargs["categorie"].lower()]
+            cat = kwargs["categorie"].lower()
+            results = [r for r in results if r.get("categorie", "").lower() == cat]
         if kwargs.get("min_prix"):
             results = [r for r in results if r.get("prix", 0) >= kwargs["min_prix"]]
         if kwargs.get("max_prix"):
@@ -92,11 +99,12 @@ class ClientAPIAdapter:
 
         url = urljoin(self.base_url, endpoint.lstrip("/"))
 
+        headers = self._headers()
         try:
             if tool_name in ("ajouter_panier", "passer_commande"):
-                resp = requests.post(url, json=tool_input, headers=self._headers(), timeout=self.timeout)
+                resp = requests.post(url, json=tool_input, headers=headers, timeout=self.timeout)
             else:
-                resp = requests.get(url, params=tool_input, headers=self._headers(), timeout=self.timeout)
+                resp = requests.get(url, params=tool_input, headers=headers, timeout=self.timeout)
 
             resp.raise_for_status()
             return resp.json()
