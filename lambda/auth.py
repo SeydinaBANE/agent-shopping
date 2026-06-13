@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -8,6 +9,8 @@ from jose import jwt
 from jose.exceptions import JWTError
 
 GUEST_TENANT = "guest"
+
+_logger = logging.getLogger(__name__)
 
 
 class AuthError(ValueError):
@@ -74,4 +77,5 @@ def extract_user_context(
             },
         }
     except AuthError:
+        _logger.warning("auth_fallback_guest", exc_info=True)
         return create_guest_context()

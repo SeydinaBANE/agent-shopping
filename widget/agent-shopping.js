@@ -1,6 +1,6 @@
 class AgentShopping extends HTMLElement {
   static get observedAttributes() {
-    return ['tenant-id', 'api-url', 'primary-color', 'position', 'lang', 'token'];
+    return ['tenant-id', 'api-url', 'primary-color', 'position', 'lang', 'token', 'stream'];
   }
 
   constructor() {
@@ -17,6 +17,7 @@ class AgentShopping extends HTMLElement {
       position: this.getAttribute('position') || 'bottom-right',
       lang: this.getAttribute('lang') || 'fr',
       token: this.getAttribute('token') || null,
+      stream: this.getAttribute('stream') !== 'false',
       pendingConfirmation: null,
     };
 
@@ -336,13 +337,16 @@ class AgentShopping extends HTMLElement {
     this._showTyping();
 
     try {
-      const response = await this._callAPI(message);
-      this._removeTyping();
-
-      if (response.confirmation) {
-        this._showConfirmation(response.confirmation);
+      if (this._state.stream) {
+        await this._callAPIStream(message);
       } else {
-        this._addMessage('assistant', response.response);
+        const response = await this._callAPI(message);
+        this._removeTyping();
+        if (response.confirmation) {
+          this._showConfirmation(response.confirmation);
+        } else {
+          this._addMessage('assistant', response.response);
+        }
       }
     } catch (err) {
       this._removeTyping();
@@ -397,14 +401,96 @@ class AgentShopping extends HTMLElement {
     return response.json();
   }
 
+  async _callAPIStream(message) {
+    const history = this._state.messages.slice(0, -1).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    }));
+
+    const payload = {
+      message,
+      history,
+      tenant_id: this._state.tenantId,
+    };
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this._state.token) {
+      headers['Authorization'] = `Bearer ${this._state.token}`;
+    }
+
+    const response = await fetch(`${this._state.apiUrl}/assistant/chat/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentAssistantMsg = null;
+    let fullText = '';
+
+    const createOrUpdateMessage = (text) => {
+      if (!currentAssistantMsg) {
+        currentAssistantMsg = document.createElement('div');
+        currentAssistantMsg.className = 'message assistant';
+        this.shadowRoot.querySelector('.messages').appendChild(currentAssistantMsg);
+      }
+      currentAssistantMsg.textContent = text;
+      this.shadowRoot.querySelector('.messages').scrollTop =
+        this.shadowRoot.querySelector('.messages').scrollHeight;
+    };
+
+    this._removeTyping();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'text') {
+            fullText += data.text;
+            createOrUpdateMessage(fullText);
+          } else if (data.type === 'tool_start') {
+            fullText += `\n[Recherche de ${data.name}...]\n`;
+            createOrUpdateMessage(fullText);
+          } else if (data.type === 'done') {
+            this._state.messages.push({ role: 'assistant', content: fullText });
+          }
+        } catch {
+          // skip malformed SSE
+        }
+      }
+    }
+  }
+
   _showConfirmation(data) {
     const dialog = this.shadowRoot.querySelector('.confirm-dialog');
     dialog.style.display = 'flex';
-    dialog.innerHTML = `
-      <span>${data.message || 'Confirmez-vous cette action ?'}</span>
-      <button class="confirm-yes">Confirmer</button>
-      <button class="confirm-no">Annuler</button>
-    `;
+
+    const span = document.createElement('span');
+    span.textContent = data.message || 'Confirmez-vous cette action ?';
+
+    const yesBtn = document.createElement('button');
+    yesBtn.className = 'confirm-yes';
+    yesBtn.textContent = 'Confirmer';
+
+    const noBtn = document.createElement('button');
+    noBtn.className = 'confirm-no';
+    noBtn.textContent = 'Annuler';
+
+    dialog.replaceChildren(span, yesBtn, noBtn);
 
     dialog.querySelector('.confirm-yes').addEventListener('click', async () => {
       dialog.style.display = 'none';
@@ -437,9 +523,10 @@ class AgentShopping extends HTMLElement {
       'position': 'position',
       'lang': 'lang',
       'token': 'token',
+      'stream': 'stream',
     };
     if (map[name]) {
-      this._state[map[name]] = newValue;
+      this._state[map[name]] = name === 'stream' ? newValue !== 'false' : newValue;
       this._render();
       this._bindEvents();
     }

@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from jose import jwt
 
-from handler import _is_fast_path
+from handler import _emit_metric, _is_fast_path
 
 
 def _int_to_base64url(num: int) -> str:
@@ -69,15 +69,20 @@ class TestIsFastPath:
 
 
 class TestLambdaHandler:
+    @patch("handler.create_trace")
+    @patch("handler.flush")
     @patch("handler._ssm_client")
     @patch("handler._bedrock_client")
     def test_guest_request(
         self,
         mock_bedrock: MagicMock,
         mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
     ) -> None:
         from handler import lambda_handler
 
+        mock_create_trace.return_value = MagicMock()
         mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
         mock_bedrock.return_value.invoke_model.return_value = {
             "body": MagicMock(
@@ -107,12 +112,15 @@ class TestLambdaHandler:
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = None
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
         assert "response" in body
 
+    @patch("handler.create_trace")
+    @patch("handler.flush")
     @patch("auth.requests.get")
     @patch("handler._ssm_client")
     @patch("handler._bedrock_client")
@@ -121,8 +129,12 @@ class TestLambdaHandler:
         mock_bedrock: MagicMock,
         mock_ssm: MagicMock,
         mock_requests_get: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
     ) -> None:
         from handler import lambda_handler
+
+        mock_create_trace.return_value = MagicMock()
 
         token, jwk = _generate_test_token(
             {
@@ -178,6 +190,7 @@ class TestLambdaHandler:
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = None
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
@@ -252,15 +265,20 @@ class TestLambdaHandler:
         response = lambda_handler(event, context)
         assert response["statusCode"] == 400
 
+    @patch("handler.create_trace")
+    @patch("handler.flush")
     @patch("handler._ssm_client")
     @patch("handler._bedrock_client")
     def test_guest_mode_no_auth_header(
         self,
         mock_bedrock: MagicMock,
         mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
     ) -> None:
         from handler import lambda_handler
 
+        mock_create_trace.return_value = MagicMock()
         mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
         mock_bedrock.return_value.invoke_model.return_value = {
             "body": MagicMock(
@@ -285,19 +303,25 @@ class TestLambdaHandler:
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = None
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
 
+    @patch("handler.create_trace")
+    @patch("handler.flush")
     @patch("handler._ssm_client")
     @patch("handler._bedrock_client")
     def test_multi_turn_tool_calls(
         self,
         mock_bedrock: MagicMock,
         mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
     ) -> None:
         from handler import lambda_handler
 
+        mock_create_trace.return_value = MagicMock()
         mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
 
         bedrock_calls: list = []
@@ -344,6 +368,7 @@ class TestLambdaHandler:
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = None
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
@@ -357,15 +382,20 @@ class TestLambdaHandler:
         tool_result_blocks = user_messages[-1]["content"]
         assert any(b["type"] == "tool_result" for b in tool_result_blocks)
 
+    @patch("handler.create_trace")
+    @patch("handler.flush")
     @patch("handler._ssm_client")
     @patch("handler._bedrock_client")
     def test_max_tool_turns_limited(
         self,
         mock_bedrock: MagicMock,
         mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
     ) -> None:
         from handler import MAX_TOOL_TURNS, lambda_handler
 
+        mock_create_trace.return_value = MagicMock()
         mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
 
         def always_tool(**kwargs):
@@ -401,9 +431,336 @@ class TestLambdaHandler:
         }
         context = MagicMock()
         context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = None
 
         response = lambda_handler(event, context)
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
         total_expected = MAX_TOOL_TURNS * 1
         assert body["tool_calls_count"] == total_expected
+
+
+class TestStreaming:
+    @patch("handler.create_trace")
+    @patch("handler.flush")
+    @patch("handler._ssm_client")
+    @patch("handler._bedrock_client")
+    def test_streaming_text_response(
+        self,
+        mock_bedrock: MagicMock,
+        mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
+    ) -> None:
+        from handler import lambda_handler
+
+        mock_create_trace.return_value = MagicMock()
+        mock_ssm.return_value.get_parameters_by_path.return_value = {"Parameters": []}
+
+        chunks = [
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_start",
+                            "index": 0,
+                            "content_block": {"type": "text", "text": ""},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": "Bonjour"},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": " !"},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "content_block_stop", "index": 0}
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
+                    ).encode()
+                }
+            },
+            {"chunk": {"bytes": json.dumps({"type": "message_stop"}).encode()}},
+        ]
+        mock_bedrock.return_value.invoke_model_with_response_stream.return_value = {
+            "body": chunks
+        }
+
+        response_stream = MagicMock()
+
+        event = {
+            "body": json.dumps(
+                {
+                    "message": "Bonjour",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
+        }
+        context = MagicMock()
+        context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = response_stream
+
+        result = lambda_handler(event, context)
+        assert result is None
+
+        written_data = b"".join(c[0][0] for c in response_stream.write.call_args_list)
+        assert b"data: " in written_data
+        assert b"Bonjour" in written_data
+        assert b'type": "done"' in written_data
+
+    @patch("handler.create_trace")
+    @patch("handler.flush")
+    @patch("handler._ssm_client")
+    @patch("handler._bedrock_client")
+    def test_streaming_with_tool_use(
+        self,
+        mock_bedrock: MagicMock,
+        mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
+    ) -> None:
+        from handler import lambda_handler
+
+        mock_create_trace.return_value = MagicMock()
+
+        text = "Je cherche dans le catalogue..."
+        chunks = [
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_start",
+                            "index": 0,
+                            "content_block": {"type": "text", "text": ""},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": text},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "content_block_stop", "index": 0}
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_start",
+                            "index": 1,
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "rechercher_produits",
+                                "input": {"query": "test"},
+                            },
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "content_block_stop", "index": 1}
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}
+                    ).encode()
+                }
+            },
+            {"chunk": {"bytes": json.dumps({"type": "message_stop"}).encode()}},
+        ]
+
+        mock_bedrock.return_value.invoke_model_with_response_stream.return_value = {
+            "body": chunks
+        }
+        mock_bedrock.return_value.invoke_model.return_value = {
+            "body": MagicMock(
+                read=MagicMock(
+                    return_value=json.dumps(
+                        {"content": [{"type": "text", "text": "Voici les résultats"}]}
+                    )
+                )
+            ),
+        }
+
+        response_stream = MagicMock()
+
+        event = {
+            "body": json.dumps(
+                {
+                    "message": "cherche ordinateur",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
+        }
+        context = MagicMock()
+        context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = response_stream
+
+        result = lambda_handler(event, context)
+        assert result is None
+
+        written_data = b"".join(c[0][0] for c in response_stream.write.call_args_list)
+        assert b'type": "text"' in written_data
+        assert b'type": "tool_start"' in written_data
+        assert b'type": "done"' in written_data
+
+    @patch("handler.create_trace")
+    @patch("handler.flush")
+    @patch("handler._ssm_client")
+    @patch("handler._bedrock_client")
+    def test_streaming_no_tools_returns_text(
+        self,
+        mock_bedrock: MagicMock,
+        mock_ssm: MagicMock,
+        mock_flush: MagicMock,
+        mock_create_trace: MagicMock,
+    ) -> None:
+        from handler import lambda_handler
+
+        mock_create_trace.return_value = MagicMock()
+
+        final_text = "Voici les résultats"
+        chunks = [
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_start",
+                            "index": 0,
+                            "content_block": {"type": "text", "text": ""},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": final_text},
+                        }
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "content_block_stop", "index": 0}
+                    ).encode()
+                }
+            },
+            {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
+                    ).encode()
+                }
+            },
+            {"chunk": {"bytes": json.dumps({"type": "message_stop"}).encode()}},
+        ]
+        mock_bedrock.return_value.invoke_model_with_response_stream.return_value = {
+            "body": chunks
+        }
+
+        response_stream = MagicMock()
+
+        event = {
+            "body": json.dumps(
+                {
+                    "message": "ordinateur",
+                    "history": [],
+                    "tenant_id": "test",
+                }
+            ),
+        }
+        context = MagicMock()
+        context.get_remaining_time_in_millis.return_value = 5000
+        context.response_stream = response_stream
+
+        result = lambda_handler(event, context)
+        assert result is None, f"Expected None, got {result}"
+
+        written_data = b"".join(c[0][0] for c in response_stream.write.call_args_list)
+        decoded = written_data.decode()
+        assert "Voici les résultats" in decoded, f"decoded={repr(decoded)}"
+
+
+class TestMetrics:
+    def test_emit_metric_success(self):
+        metric_name = "TestMetric"
+        value = 42.0
+        unit = "Count"
+        dims = [{"Name": "Model", "Value": "test-model"}]
+
+        with patch("handler._cw_client") as mock_cw:
+            mock_client = MagicMock()
+            mock_cw.return_value = mock_client
+
+            _emit_metric(metric_name, value, unit, dims)
+
+            mock_client.put_metric_data.assert_called_once_with(
+                Namespace="AgentShopping",
+                MetricData=[
+                    {
+                        "MetricName": metric_name,
+                        "Value": value,
+                        "Unit": unit,
+                        "Dimensions": dims,
+                    }
+                ],
+            )
+
+    def test_emit_metric_failure_logs_warning(self):
+        with patch("handler._cw_client") as mock_cw:
+            mock_cw.side_effect = Exception("aws down")
+
+            with patch("handler.logger.exception") as mock_exc:
+                _emit_metric("FailMetric", 1.0, "Count", [])
+                mock_exc.assert_called_once()
+                assert mock_exc.call_args[0][0] == "metric_emit_failed"

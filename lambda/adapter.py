@@ -87,6 +87,9 @@ class ClientAPIAdapter:
         if not self.base_url:
             return self._mock_call(tool_name, tool_input)
 
+        if not self.base_url.startswith("https://"):
+            return {"error": "Configuration invalide : seuls les endpoints HTTPS sont autorisés."}
+
         endpoint_template = self._endpoint_map.get(tool_name, "")
         if not endpoint_template:
             return {"error": f"Unknown tool: {tool_name}"}

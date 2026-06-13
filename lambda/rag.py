@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from collections import OrderedDict
 from typing import Any
 
 import boto3
@@ -10,6 +12,10 @@ from requests_aws4auth import AWS4Auth
 
 EMBEDDING_MODEL = os.environ.get("BEDROCK_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
 EMBEDDING_DIMENSION = 1024
+
+_RAG_CACHE: OrderedDict[str, tuple[float, list[dict[str, Any]]]] = OrderedDict()
+_CACHE_TTL_SEC = 300
+_CACHE_MAX_SIZE = 100
 
 
 def _bedrock_client():
@@ -161,7 +167,35 @@ def bulk_index_products(tenant_id: str, products: list[dict[str, Any]]) -> int:
     return success
 
 
+def _cache_key(tenant_id: str, query: str) -> str:
+    return f"{tenant_id}:{query}"
+
+
+def _cache_get(tenant_id: str, query: str) -> list[dict[str, Any]] | None:
+    key = _cache_key(tenant_id, query)
+    if key not in _RAG_CACHE:
+        return None
+    ts, results = _RAG_CACHE[key]
+    if time.time() - ts > _CACHE_TTL_SEC:
+        del _RAG_CACHE[key]
+        return None
+    _RAG_CACHE.move_to_end(key)
+    return results
+
+
+def _cache_set(tenant_id: str, query: str, results: list[dict[str, Any]]) -> None:
+    key = _cache_key(tenant_id, query)
+    _RAG_CACHE[key] = (time.time(), results)
+    _RAG_CACHE.move_to_end(key)
+    if len(_RAG_CACHE) > _CACHE_MAX_SIZE:
+        _RAG_CACHE.popitem(last=False)
+
+
 def search_similar(query: str, tenant_id: str, size: int = 5) -> list[dict[str, Any]]:
+    cached = _cache_get(tenant_id, query)
+    if cached is not None:
+        return cached
+
     client = _get_opensearch_client()
     if client is None:
         return []
@@ -188,7 +222,9 @@ def search_similar(query: str, tenant_id: str, size: int = 5) -> list[dict[str, 
         },
     )
 
-    return [hit["_source"] for hit in response["hits"]["hits"]]
+    results = [hit["_source"] for hit in response["hits"]["hits"]]
+    _cache_set(tenant_id, query, results)
+    return results
 
 
 def build_rag_context(results: list[dict[str, Any]]) -> str:

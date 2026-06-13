@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+from unittest.mock import patch
 
 import pytest
+import requests
 
 from adapter import ClientAPIAdapter
 
@@ -136,3 +138,82 @@ class TestClientAPIAdapter:
     def test_unknown_tool(self, adapter: ClientAPIAdapter) -> None:
         result = adapter.call("unknown_tool", {})
         assert "error" in result
+
+    def test_http_base_url_rejected(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "http://internal.service:8080"
+        with patch.object(adapter, "_mock_call") as mock_mock:
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "error" in result
+            assert "HTTPS" in result["error"]
+            mock_mock.assert_not_called()
+
+    def test_https_base_url_allowed(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.get") as mock_get:
+            mock_get.return_value.ok = True
+            mock_get.return_value.json.return_value = {"results": []}
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "results" in result
+
+    def test_http_timeout_returns_friendly_error(
+        self, adapter: ClientAPIAdapter
+    ) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.get") as mock_get:
+            mock_get.side_effect = requests.Timeout("timed out")
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "temporairement indisponible" in result["error"]
+
+    def test_http_404_returns_not_found(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.get") as mock_get:
+            resp = _error_response(404)
+            mock_get.return_value = resp
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "Ressource introuvable" in result["error"]
+
+    def test_http_500_returns_service_unavailable(
+        self, adapter: ClientAPIAdapter
+    ) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.get") as mock_get:
+            resp = _error_response(502)
+            mock_get.return_value = resp
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "momentanément indisponible" in result["error"]
+
+    def test_http_403_returns_generic_error(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.get") as mock_get:
+            resp = _error_response(403)
+            mock_get.return_value = resp
+            result = adapter.call("rechercher_produits", {"query": "test"})
+            assert "403" in result["error"]
+
+    def test_post_cart_via_https(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = {"success": True}
+            result = adapter.call(
+                "ajouter_panier",
+                {"produit_id": "PROD-001", "quantite": 1, "confirmed": True},
+            )
+            assert result["success"] is True
+            mock_post.assert_called_once()
+
+    def test_post_cart_timeout(self, adapter: ClientAPIAdapter) -> None:
+        adapter.base_url = "https://api.example.com"
+        with patch("adapter.requests.post") as mock_post:
+            mock_post.side_effect = requests.Timeout("timeout")
+            result = adapter.call(
+                "ajouter_panier",
+                {"produit_id": "PROD-001", "quantite": 1, "confirmed": True},
+            )
+            assert "temporairement indisponible" in result["error"]
+
+
+def _error_response(status: int) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = status
+    return resp
