@@ -1,0 +1,65 @@
+.PHONY: help install lint typecheck test build clean docker-build docker-push pre-commit-init format
+
+APP_NAME   ?= agent-shopping
+VERSION    ?= $(shell cat VERSION 2>/dev/null || echo "0.1.0")
+REGISTRY   ?= ghcr.io
+OWNER      ?= ekkiden
+IMAGE_NAME ?= $(REGISTRY)/$(OWNER)/$(APP_NAME)
+
+help:
+	@echo "Usage:"
+	@echo "  make install         Install all dependencies"
+	@echo "  make lint            Run linters (ruff)"
+	@echo "  make typecheck       Run type checker (mypy)"
+	@echo "  make test            Run tests"
+	@echo "  make build           Package Lambda + Widget"
+	@echo "  make clean           Remove build artifacts"
+	@echo "  make docker-build    Build Docker image"
+	@echo "  make docker-push     Push Docker image to ghcr.io"
+	@echo "  make pre-commit-init Install pre-commit hooks"
+	@echo "  make format          Format code (ruff)"
+
+install:
+	pip install -r lambda/requirements-dev.txt
+	pre-commit install
+
+lint:
+	ruff check lambda/ scripts/ tests/
+	ruff format --check lambda/ scripts/ tests/
+
+typecheck:
+	mypy lambda/ scripts/ tests/
+
+test:
+	pytest tests/ -v --cov=lambda/ --cov-report=term-missing
+
+build: test lint typecheck
+	cd widget && npm run build 2>/dev/null || echo "Widget build skipped (no package.json yet)"
+	cd lambda && pip install -r lambda/requirements.txt -t build/ 2>/dev/null || mkdir -p build
+	cp lambda/handler.py lambda/build/
+	cp lambda/adapter.py lambda/build/
+
+clean:
+	rm -rf lambda/build/
+	rm -rf widget/dist/
+	rm -rf .pytest_cache/
+	rm -rf *.egg-info/
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+docker-build:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		-t $(IMAGE_NAME):$(VERSION) \
+		-t $(IMAGE_NAME):latest \
+		.
+
+docker-push: docker-build
+	docker push $(IMAGE_NAME):$(VERSION)
+	docker push $(IMAGE_NAME):latest
+
+pre-commit-init:
+	pre-commit install
+	pre-commit install --hook-type pre-push
+
+format:
+	ruff format lambda/ scripts/ tests/

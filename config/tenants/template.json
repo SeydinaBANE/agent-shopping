@@ -1,0 +1,27 @@
+{
+  "tenant_id": "client-xxx",
+  "name": "Nom du client",
+  "public_key_jwks_uri": "https://client.com/.well-known/jwks.json",
+  "api_base_url": "https://api.client.com/v3",
+  "api_auth_header": "X-Api-Key",
+  "api_auth_value_ssm": "/agent-shopping/tenants/client-xxx/api-key",
+  "endpoints": {
+    "search_products": "/products/search",
+    "product_detail": "/products/{produit_id}",
+    "check_inventory": "/products/{produit_id}/stock",
+    "user_history": "/users/{client_id}/orders",
+    "add_to_cart": "/cart",
+    "place_order": "/orders",
+    "track_order": "/orders/{commande_id}"
+  },
+  "brand": {
+    "primary_color": "#6C5CE7",
+    "logo_url": "https://client.com/logo.png",
+    "name": "Client"
+  },
+  "llm_config": {
+    "model": "claude-3-5-sonnet",
+    "temperature": 0.3,
+    "max_tokens": 1024
+  }
+}

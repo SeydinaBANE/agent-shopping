@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  lambda:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9000:8080"
+    environment:
+      - AWS_LAMBDA_FUNCTION_NAME=agent-shopping
+      - AWS_LAMBDA_FUNCTION_VERSION=local
+      - _HANDLER=handler.lambda_handler
+      - MOCK_API=true
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+    volumes:
+      - ./lambda:/var/task:ro
+      - ./api/mock-catalog.json:/var/task/mock-catalog.json:ro
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  opensearch:
+    image: opensearchproject/opensearch:2.14
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Admin123!
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 15s
+      retries: 5
+
+  widget:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./widget/dist:/usr/share/nginx/html:ro

@@ -1,0 +1,32 @@
+[project]
+name = "agent-shopping"
+version = "0.1.0"
+description = "Agent Shopping — Lambda orchestration"
+requires-python = ">=3.12"
+dependencies = [
+    "python-jose[cryptography]>=3.3",
+    "requests>=2.31",
+    "boto3>=1.34",
+    "aws-lambda-powertools>=2.40",
+    "pydantic>=2.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ARG", "ERA"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+warn_return_any = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
+python_files = ["test_*.py"]

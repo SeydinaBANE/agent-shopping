@@ -1,0 +1,92 @@
+[
+  {
+    "id": "PROD-0001",
+    "nom": "Robe d'été fleurie",
+    "description": "Robe légère en coton bio, parfaite pour les journées ensoleillées.",
+    "prix": 49.99,
+    "stock": 42,
+    "categorie": "vêtements",
+    "tags": ["robe", "été", "fleurie", "coton"]
+  },
+  {
+    "id": "PROD-0002",
+    "nom": "Pull noir en cachemire",
+    "description": "Pull en cachemire doux et chaud, idéal pour l'hiver.",
+    "prix": 89.99,
+    "stock": 18,
+    "categorie": "vêtements",
+    "tags": ["pull", "hiver", "cachemire", "noir"]
+  },
+  {
+    "id": "PROD-0003",
+    "nom": "Écouteurs sans fil Pro",
+    "description": "Écouteurs Bluetooth avec réduction de bruit active et 30h d'autonomie.",
+    "prix": 149.99,
+    "stock": 35,
+    "categorie": "électronique",
+    "tags": ["écouteurs", "bluetooth", "sans-fil", "audio"]
+  },
+  {
+    "id": "PROD-0004",
+    "nom": "Lampe de bureau LED",
+    "description": "Lampe LED design avec intensité et température de couleur réglables.",
+    "prix": 39.99,
+    "stock": 67,
+    "categorie": "maison",
+    "tags": ["lampe", "bureau", "led", "design"]
+  },
+  {
+    "id": "PROD-0005",
+    "nom": "Sac en cuir vintage",
+    "description": "Sac à main en cuir véritable, fabrication artisanale.",
+    "prix": 199.99,
+    "stock": 7,
+    "categorie": "vêtements",
+    "tags": ["sac", "cuir", "vintage", "artisanat"]
+  },
+  {
+    "id": "PROD-0006",
+    "nom": "Montre connectée Sport",
+    "description": "Montre avec GPS, cardiofréquencemètre et 100+ modes sport.",
+    "prix": 249.99,
+    "stock": 23,
+    "categorie": "électronique",
+    "tags": ["montre", "connectée", "sport", "gps"]
+  },
+  {
+    "id": "PROD-0007",
+    "nom": "Chaise de bureau ergonomique",
+    "description": "Chaise avec support lombaire réglable et accoudoirs 3D.",
+    "prix": 299.99,
+    "stock": 12,
+    "categorie": "maison",
+    "tags": ["chaise", "bureau", "ergonomique", "confort"]
+  },
+  {
+    "id": "PROD-0008",
+    "nom": "Chaussures de running Boost",
+    "description": "Chaussures légères avec semelle amortissante pour la course à pied.",
+    "prix": 129.99,
+    "stock": 31,
+    "categorie": "sport",
+    "tags": ["chaussures", "running", "sport", "amorti"]
+  },
+  {
+    "id": "PROD-0009",
+    "nom": "Casque audio studio",
+    "description": "Casque circum-auriculaire avec son haute-fidélité et réduction de bruit.",
+    "prix": 179.99,
+    "stock": 15,
+    "categorie": "électronique",
+    "tags": ["casque", "audio", "studio", "hifi"]
+  },
+  {
+    "id": "PROD-0010",
+    "nom": "Ensemble de thés premium",
+    "description": "Coffret de 6 thés bio provenant des meilleures plantations.",
+    "prix": 34.99,
+    "stock": 88,
+    "categorie": "alimentation",
+    "tags": ["thé", "coffret", "bio", "premium"]
+  }
+]

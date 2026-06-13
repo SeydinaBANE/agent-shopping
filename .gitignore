@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+
+# Node / Widget
+node_modules/
+dist/
+*.js.map
+
+# Lambda
+.lambda/
+*.zip
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Build
+build/
+*.egg-info/
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+
+# CDK
+cdk.out/
+
+# Pre-commit
+.secrets.baseline

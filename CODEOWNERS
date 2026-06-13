@@ -1,0 +1,15 @@
+# Équipe principale
+* @ekkiden/genai-lead @ekkiden/architect
+
+# Lambda / Backend
+/lambda/ @ekkiden/genai-engineer
+
+# Widget / Frontend
+/widget/ @ekkiden/frontend-lead
+
+# Infrastructure
+/infra/ @ekkiden/devops
+
+# Documentation
+/docs/ @ekkiden/tech-writer
+*.md @ekkiden/tech-writer
