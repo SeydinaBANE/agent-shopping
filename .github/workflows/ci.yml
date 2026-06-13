@@ -69,6 +69,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t agent-shopping:ci --build-arg VERSION=$(cat VERSION) .
-      - run: |
-          docker run --rm agent-shopping:ci \
-            python -c "import handler; assert hasattr(handler, 'lambda_handler')"
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: docker compose up -d --wait
+      - name: Wait for Lambda RIE
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/2015-03-31/functions/function/invocations -d '{}' > /dev/null 2>&1 && break
+            sleep 1
+          done
+      - name: Run Artillery smoke tests
+        run: npx artillery run artillery/smoke.yml --output artillery/reports/smoke.json
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: artillery-report
+          path: artillery/reports/
+      - run: docker compose down --remove-orphans
