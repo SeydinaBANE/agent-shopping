@@ -115,6 +115,7 @@ class TestLambdaHandler:
         context.response_stream = None
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
         assert "response" in body
@@ -193,6 +194,7 @@ class TestLambdaHandler:
         context.response_stream = None
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 200
 
     @patch("auth.requests.get")
@@ -243,6 +245,7 @@ class TestLambdaHandler:
         context = MagicMock()
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 403
         body = json.loads(response["body"])
         assert "Tenant mismatch" in body["error"]
@@ -254,6 +257,7 @@ class TestLambdaHandler:
         context = MagicMock()
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 400
 
     def test_invalid_json(self) -> None:
@@ -263,6 +267,7 @@ class TestLambdaHandler:
         context = MagicMock()
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 400
 
     @patch("handler.create_trace")
@@ -306,6 +311,7 @@ class TestLambdaHandler:
         context.response_stream = None
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 200
 
     @patch("handler.create_trace")
@@ -371,6 +377,7 @@ class TestLambdaHandler:
         context.response_stream = None
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
         assert body["tool_calls_count"] == 2
@@ -434,6 +441,7 @@ class TestLambdaHandler:
         context.response_stream = None
 
         response = lambda_handler(event, context)
+        assert response is not None
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
         total_expected = MAX_TOOL_TURNS * 1

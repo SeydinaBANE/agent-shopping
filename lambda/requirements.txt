@@ -5,3 +5,5 @@ aws-lambda-powertools>=2.40
 pydantic>=2.0
 opensearch-py>=2.6,<3.0
 requests-aws4auth>=1.2,<2.0
+langfuse>=2.54,<3.0
+langfuse>=2.54,<3.0
