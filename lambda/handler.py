@@ -438,12 +438,6 @@ Format des réponses produits :
 Pour les comparaisons, utilise un tableau simple."""
 
 
-class _HandlerError(Exception):
-    def __init__(self, status_code: int, message: str) -> None:
-        self.status_code = status_code
-        self.body = _json({"error": message})
-
-
 @logger.inject_lambda_context
 def lambda_handler(event: dict[str, Any], context: LambdaContext) -> dict[str, Any] | None:
     start_remaining = context.get_remaining_time_in_millis()

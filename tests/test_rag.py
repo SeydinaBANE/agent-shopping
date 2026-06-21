@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,7 +15,10 @@ from rag import (
     _RAG_CACHE,
     _get_opensearch_client,
     build_rag_context,
+    bulk_index_products,
+    ensure_index,
     generate_embedding,
+    index_product,
     search_similar,
 )
 
@@ -63,7 +66,7 @@ def test_search_similar_no_client_returns_empty() -> None:
 
 def test_search_similar_caches_results() -> None:
     fake_results = [{"nom": "Chaise", "prix": 49.99}]
-    mock_client = _mock_client(fake_results)
+    mock_client = _make_mock_client(fake_results)
 
     with patch("rag._get_opensearch_client", return_value=mock_client):
         with patch("rag.generate_embedding", return_value=[0.1] * 1024):
@@ -94,7 +97,7 @@ def test_cache_evicts_lru() -> None:
 
 
 def test_search_similar_no_index_returns_empty() -> None:
-    mock_client = _mock_client([])
+    mock_client = _make_mock_client([])
     mock_client.indices.exists.return_value = False
 
     with patch("rag._get_opensearch_client", return_value=mock_client):
@@ -103,18 +106,116 @@ def test_search_similar_no_index_returns_empty() -> None:
             assert results == []
 
 
-def _mock_client(fake_results: list) -> Any:
-    class _MockOS:
-        class indices:
-            @staticmethod
-            def exists(index: str) -> bool:
-                return True
+class _MockOS:
+    def __init__(self) -> None:
+        self.indices = _MockIndices()
+        self.index = MagicMock()
+        self.search = MagicMock(return_value={"hits": {"hits": []}})
 
-        def search(self, index: str, body: dict) -> dict:
-            hits = [{"_source": r} for r in fake_results]
-            return {"hits": {"hits": hits}}
 
-    return _MockOS()
+class _MockIndices:
+    def __init__(self) -> None:
+        self.exists = MagicMock(return_value=True)
+        self.create = MagicMock()
+
+
+def _make_mock_client(fake_results: list[dict[str, Any]]) -> _MockOS:
+    client = _MockOS()
+    client.search.return_value = {
+        "hits": {"hits": [{"_source": r} for r in fake_results]}
+    }
+    return client
+
+
+def test_ensure_index_no_client_returns_false() -> None:
+    with patch("rag._get_opensearch_client", return_value=None):
+        assert ensure_index("tenant-1") is False
+
+
+def test_ensure_index_exists_returns_true() -> None:
+    client = _MockOS()
+    client.indices.exists = MagicMock(return_value=True)
+
+    with patch("rag._get_opensearch_client", return_value=client):
+        with patch("rag._index_name", return_value="test-tenant-1"):
+            assert ensure_index("tenant-1") is True
+            client.indices.exists.assert_called_once_with(index="test-tenant-1")
+            client.indices.create.assert_not_called()
+
+
+def test_ensure_index_creates_index() -> None:
+    client = _MockOS()
+    client.indices.exists = MagicMock(return_value=False)
+
+    with patch("rag._get_opensearch_client", return_value=client):
+        with patch("rag._index_name", return_value="test-tenant-1"):
+            assert ensure_index("tenant-1") is True
+            client.indices.create.assert_called_once()
+            kwargs = client.indices.create.call_args.kwargs
+            assert kwargs["index"] == "test-tenant-1"
+            body = kwargs["body"]
+            assert body["settings"]["index.knn"] is True
+            assert body["mappings"]["properties"]["id"]["type"] == "keyword"
+            assert body["mappings"]["properties"]["nom"]["analyzer"] == "french"
+            assert body["mappings"]["properties"]["embedding"]["type"] == "knn_vector"
+            assert body["mappings"]["properties"]["embedding"]["dimension"] == 1024
+
+
+def test_index_product_no_client_returns_false() -> None:
+    with patch("rag._get_opensearch_client", return_value=None):
+        assert index_product("tenant-1", {"id": "P1"}) is False
+
+
+def test_index_product_success() -> None:
+    client = _MockOS()
+    embedding = [0.5] * 1024
+    product = {"id": "P1", "nom": "Chaise", "prix": 49.99}
+
+    with patch("rag._get_opensearch_client", return_value=client):
+        with patch("rag._index_name", return_value="test-tenant-1"):
+            with patch("rag.generate_embedding", return_value=embedding):
+                assert index_product("tenant-1", product) is True
+                client.index.assert_called_once()
+                args, kwargs = client.index.call_args
+                assert kwargs["index"] == "test-tenant-1"
+                assert kwargs["id"] == "P1"
+                assert kwargs["body"]["embedding"] == embedding
+
+
+def test_index_product_missing_id_raises_keyerror() -> None:
+    with patch("rag._get_opensearch_client", return_value=_MockOS()):
+        with patch("rag.generate_embedding", return_value=[0.5] * 1024):
+            with pytest.raises(KeyError):
+                index_product("tenant-1", {"nom": "Chaise"})
+
+
+def test_bulk_index_products_no_client_returns_zero() -> None:
+    with patch("rag._get_opensearch_client", return_value=None):
+        assert bulk_index_products("tenant-1", []) == 0
+
+
+def test_bulk_index_products_success() -> None:
+    products = [
+        {"id": "P1", "nom": "Chaise", "prix": 49.99},
+        {"id": "P2", "nom": "Table", "prix": 129.99},
+    ]
+    embedding = [0.5] * 1024
+
+    with patch("rag._get_opensearch_client", return_value=_MockOS()):
+        with patch("rag._index_name", return_value="test-tenant-1"):
+            with patch("rag.generate_embedding", return_value=embedding):
+                with patch("rag.helpers.bulk", return_value=(2, [])) as mock_bulk:
+                    result = bulk_index_products("tenant-1", products)
+                    assert result == 2
+                    mock_bulk.assert_called_once()
+
+
+def test_bulk_index_products_empty_list() -> None:
+    with patch("rag._get_opensearch_client", return_value=_MockOS()):
+        with patch("rag.helpers.bulk", return_value=(0, [])) as mock_bulk:
+            result = bulk_index_products("tenant-1", [])
+            assert result == 0
+            mock_bulk.assert_called_once()
 
 
 def test_generate_embedding_returns_floats() -> None:

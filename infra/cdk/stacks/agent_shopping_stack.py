@@ -107,6 +107,27 @@ class AgentShoppingStack(Stack):
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
+                    "lambda:InvokeFunctionResponseStream",
+                ],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:{APP_NAME}",
+                ],
+            )
+        )
+
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"],
+                conditions={
+                    "StringEquals": {"cloudwatch:namespace": "AgentShopping"},
+                },
+            )
+        )
+
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
                     "aoss:APIAccessAll",
                     "aoss:CreateIndex",
                     "aoss:ReadDocument",
@@ -151,6 +172,9 @@ class AgentShoppingStack(Stack):
                 "OPENSEARCH_PORT": "9200",
                 "OPENSEARCH_INDEX_PREFIX": APP_NAME,
                 "MOCK_API": "false",
+                "LANGFUSE_SECRET_KEY": "",
+                "LANGFUSE_PUBLIC_KEY": "",
+                "LANGFUSE_HOST": "https://cloud.langfuse.com",
             },
             role=role,
         )
@@ -186,10 +210,22 @@ class AgentShoppingStack(Stack):
             handler=orchestrator,
         )
 
+        streaming_integration = apigwv2_integrations.HttpLambdaIntegration(
+            "StreamLambdaIntegration",
+            handler=orchestrator,
+        )
+
+        self._enable_streaming(streaming_integration)
+
         http_api.add_routes(
             path="/assistant/chat",
             methods=[apigwv2.HttpMethod.POST],
             integration=lambda_integration,
+        )
+        http_api.add_routes(
+            path="/assistant/chat/stream",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=streaming_integration,
         )
         http_api.add_routes(
             path="/health",
@@ -198,6 +234,12 @@ class AgentShoppingStack(Stack):
         )
 
         return http_api
+
+    def _enable_streaming(
+        self, integration: apigwv2_integrations.HttpLambdaIntegration
+    ) -> None:
+        cfn_integration = integration.node.default_child
+        cfn_integration.add_property_override("ResponseStreaming", True)
 
     # ----- WAF -----
 
@@ -406,6 +448,59 @@ class AgentShoppingStack(Stack):
             versioned=False,
         )
 
+        response_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self,
+            "WidgetSecurityHeaders",
+            security_headers_behavior=cloudfront.ResponseSecurityHeadersBehavior(
+                content_type_options=cloudfront.HeadersContentTypeOptions(
+                    override=True,
+                ),
+                frame_options=cloudfront.HeadersFrameOptions(
+                    frame_option=cloudfront.HeadersFrameOption.DENY,
+                    override=True,
+                ),
+                referrer_policy=cloudfront.HeadersReferrerPolicy(
+                    referrer_policy=cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+                    override=True,
+                ),
+                strict_transport_security=cloudfront.HeadersStrictTransportSecurity(
+                    access_control_max_seconds=Duration.seconds(31536000),
+                    include_subdomains=True,
+                    preload=True,
+                    override=True,
+                ),
+                xss_protection=cloudfront.HeadersXSSProtection(
+                    protection=True,
+                    mode_block=True,
+                    override=True,
+                ),
+            ),
+            custom_headers_behavior=cloudfront.ResponseCustomHeadersBehavior(
+                custom_headers=[
+                    cloudfront.ResponseCustomHeader(
+                        header="Cross-Origin-Opener-Policy",
+                        value="same-origin",
+                        override=True,
+                    ),
+                    cloudfront.ResponseCustomHeader(
+                        header="Cross-Origin-Embedder-Policy",
+                        value="require-corp",
+                        override=True,
+                    ),
+                    cloudfront.ResponseCustomHeader(
+                        header="Cross-Origin-Resource-Policy",
+                        value="cross-origin",
+                        override=True,
+                    ),
+                    cloudfront.ResponseCustomHeader(
+                        header="Access-Control-Allow-Origin",
+                        value="*",
+                        override=True,
+                    ),
+                ],
+            ),
+        )
+
         distribution = cloudfront.Distribution(
             self,
             "WidgetDistribution",
@@ -413,6 +508,7 @@ class AgentShoppingStack(Stack):
                 origin=origins.S3BucketOrigin(bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                response_headers_policy=response_headers_policy,
                 compress=True,
             ),
             default_root_object="agent-shopping.min.js",
@@ -469,6 +565,27 @@ class AgentShoppingStack(Stack):
             period=Duration.minutes(5),
         )
 
+        custom_invocation = cloudwatch.Metric(
+            namespace="AgentShopping",
+            metric_name="Invocation",
+            statistic="Sum",
+            period=Duration.minutes(5),
+        )
+
+        custom_latency = cloudwatch.Metric(
+            namespace="AgentShopping",
+            metric_name="Latency",
+            statistic="p95",
+            period=Duration.minutes(5),
+        )
+
+        custom_tokens = cloudwatch.Metric(
+            namespace="AgentShopping",
+            metric_name="Tokens",
+            statistic="Sum",
+            period=Duration.minutes(5),
+        )
+
         dashboard.add_widgets(
             cloudwatch.Row(
                 cloudwatch.GraphWidget(
@@ -477,10 +594,24 @@ class AgentShoppingStack(Stack):
                     right=[error_metric],
                 ),
                 cloudwatch.GraphWidget(
-                    title="Latence (p95)",
+                    title="Latence Lambda (p95)",
                     left=[latency_metric],
                 ),
-            )
+            ),
+            cloudwatch.Row(
+                cloudwatch.GraphWidget(
+                    title="Invocations AgentShopping (par modèle)",
+                    left=[custom_invocation],
+                ),
+                cloudwatch.GraphWidget(
+                    title="Latence AgentShopping (p95 ms)",
+                    left=[custom_latency],
+                ),
+                cloudwatch.GraphWidget(
+                    title="Tokens consommés",
+                    left=[custom_tokens],
+                ),
+            ),
         )
 
         cloudwatch.Alarm(

@@ -16,6 +16,8 @@ help:
 	@echo "  make typecheck       Run type checker (mypy)"
 	@echo "  make test            Run tests"
 	@echo "  make build           Package Lambda + Widget"
+	@echo "  make e2e             Run smoke E2E tests (local)"
+	@echo "  make e2e-benchmark   Run benchmark E2E tests (local)"
 	@echo "  make deploy-widget   Upload widget to S3 + invalidate CloudFront"
 	@echo "  make clean           Remove build artifacts"
 	@echo "  make docker-build    Build Docker image"
@@ -74,3 +76,9 @@ pre-commit-init:
 
 format:
 	ruff format lambda/ scripts/ tests/
+
+e2e:
+	scripts/test-e2e.sh smoke
+
+e2e-benchmark:
+	scripts/test-e2e.sh benchmark

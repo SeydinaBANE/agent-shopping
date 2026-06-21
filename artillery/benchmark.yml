@@ -1,0 +1,85 @@
+config:
+  target: "{{ $processEnvironment.TARGET_URL || 'http://localhost:9000' }}"
+  phases:
+    - name: "Warm-up"
+      duration: 10
+      arrivalRate: 1
+    - name: "Ramp-up 10→50"
+      duration: 30
+      arrivalRate: 10
+      rampTo: 50
+    - name: "Sustain 50 req/s"
+      duration: 30
+      arrivalRate: 50
+  http:
+    timeout: 30
+  plugins:
+    ensure: {}
+    statsd:
+      host: "{{ $processEnvironment.STATSD_HOST || 'localhost' }}"
+      port: 8125
+      prefix: "agent-shopping."
+  ensure:
+    thresholds:
+      - http.response_time.p95: 5000
+      - http.response_time.p99: 10000
+      - http.request_rate: 40
+    conditions:
+      - expression: "http.codes.200 > http.codes.400"
+scenarios:
+  - name: "Message rapide (fast path)"
+    weight: 4
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"{{ $pickRandom(['Bonjour', 'merci', 'salut', 'oui', 'au revoir']) }}\", \"history\": [], \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 200"
+
+  - name: "Recherche produit (slow path)"
+    weight: 3
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"{{ $pickRandom(['Je cherche un ordinateur', 'robe rouge', 'carte graphique', 'écran 27 pouces', 'clavier mécanique', 'souris gaming']) }}\", \"history\": [], \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 200"
+
+  - name: "Requête invalide"
+    weight: 1
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "pas du json",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 400"

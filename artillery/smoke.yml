@@ -1,0 +1,112 @@
+config:
+  target: "http://localhost:9000"
+  phases:
+    - duration: 1
+      arrivalCount: 1
+  http:
+    timeout: 30
+  ensure:
+    maxBy: 95
+    minSuccess: 1
+scenarios:
+  - name: "Bonjour — fast path"
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"Bonjour\", \"history\": [], \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+            - json: "$.body.response"
+              as: responseText
+      - log: "statusCode={{ statusCode }}, response={{ responseText }}"
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 200"
+
+  - name: "Recherche produit — slow path avec RAG"
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"Je cherche un ordinateur portable\", \"history\": [], \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+            - json: "$.body.response"
+              as: responseText
+      - log: "statusCode={{ statusCode }}, response={{ responseText }}"
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 200"
+
+  - name: "Message manquant — 400"
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"\", \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+            - json: "$.body.error"
+              as: errorText
+      - log: "statusCode={{ statusCode }}, error={{ errorText }}"
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 400"
+
+  - name: "JSON invalide — 400"
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "pas du json",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+            - json: "$.body.error"
+              as: errorText
+      - log: "statusCode={{ statusCode }}, error={{ errorText }}"
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 400"
+
+  - name: "Guest mode — sans auth header"
+    flow:
+      - post:
+          url: "/2015-03-31/functions/function/invocations"
+          headers:
+            Content-Type: "application/json"
+          body: >
+            {
+              "body": "{\"message\": \"merci\", \"history\": [], \"tenant_id\": \"default\"}",
+              "headers": {}
+            }
+          capture:
+            - json: "$.statusCode"
+              as: statusCode
+      - ensure:
+          conditions:
+            - expression: "{{ statusCode }} == 200"
